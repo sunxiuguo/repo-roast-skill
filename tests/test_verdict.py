@@ -43,6 +43,50 @@ class BailiffTests(RepoCase):
         self.assertIsNone(self.bailiff.check("`src/db.py:50` builds SQL"))
         self.assertIsNone(self.bailiff.check("./app.py:1"))
 
+    def test_accepts_backtick_quoted_paths_with_spaces(self):
+        folder = self.repo / "docs with spaces"
+        folder.mkdir()
+        (folder / "My Guide.md").write_text("first\nsecond\nthird\n", encoding="utf-8")
+        for evidence in [
+            "`docs with spaces/My Guide.md:2`",
+            "See `docs with spaces/My Guide.md:1-3` for details",
+            "`./docs with spaces/My Guide.md:1` and app.py:3",
+            "`docs with spaces\\My Guide.md:3`",
+        ]:
+            with self.subTest(evidence=evidence):
+                self.assertIsNone(self.bailiff.check(evidence))
+
+    def test_quoted_paths_keep_file_and_line_validation(self):
+        (self.repo / "My Guide.md").write_text("first\nsecond\n", encoding="utf-8")
+        for evidence, reason in [
+            ("`Missing Guide.md:1`", "not found"),
+            ("`My Guide.md:3`", "out of range"),
+            ("`My Guide.md:0`", "out of range"),
+            ("`My Guide.md:2-1`", "out of range"),
+            ("`My Guide.md:1-3`", "out of range"),
+            ("app.py:1 and `Missing Guide.md:1`", "not found"),
+            ("`My Guide.md:1` and nope.py:1", "not found"),
+        ]:
+            with self.subTest(evidence=evidence):
+                self.assertIn(reason, self.bailiff.check(evidence))
+
+    def test_quoted_paths_cannot_use_a_valid_suffix(self):
+        # The full quoted path must be checked, not just its final word.
+        for evidence in ["`missing app.py:1`", "`../missing app.py:1`",
+                         "`/missing app.py:1`"]:
+            with self.subTest(evidence=evidence):
+                self.assertIsNotNone(self.bailiff.check(evidence))
+
+    def test_non_location_code_spans_still_validate_citations(self):
+        for evidence, reason in [
+            ("app.py:1 and `nope.py:1,`", "not found"),
+            ("app.py:1 and `app.py:999,`", "out of range"),
+            ("`app.py:1 and nope.py:1`", "not found"),
+        ]:
+            with self.subTest(evidence=evidence):
+                self.assertIn(reason, self.bailiff.check(evidence))
+        self.assertIsNone(self.bailiff.check("`app.py:1,`"))
+
     def test_rejects_missing_file(self):
         self.assertIn("not found", self.bailiff.check("nope.py:1"))
 

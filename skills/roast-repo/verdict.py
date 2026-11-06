@@ -49,6 +49,25 @@ DEFAULT_HEADLINES = {
 
 LOCATION = re.compile(r"(?<![\w/\\.-])([\w.\-][\w.\-/\\]*?):(\d+)(?:-(\d+))?\b")
 
+# Quoting makes spaces unambiguous without absorbing prose around bare citations.
+QUOTED_TEXT = re.compile(r"`([^`\r\n]*)`")
+QUOTED_LOCATION = re.compile(r"([\w.\-/\\][\w.\-/\\ ]*?):(\d+)(?:-(\d+))?")
+
+
+def evidence_locations(evidence: str):
+    """Yield whole quoted citations and ordinary citations outside backticks."""
+    start = 0
+    for quoted in QUOTED_TEXT.finditer(evidence):
+        yield from LOCATION.finditer(evidence[start:quoted.start()])
+        location = QUOTED_LOCATION.fullmatch(quoted.group(1))
+        if location:
+            yield location
+        else:
+            # Preserve validation of existing inline prose/multiple citations.
+            yield from LOCATION.finditer(quoted.group(1))
+        start = quoted.end()
+    yield from LOCATION.finditer(evidence[start:])
+
 
 def tier(score: float) -> str:
     for limit, name in TIERS:
@@ -108,7 +127,7 @@ class Bailiff:
             if self.facts is None:
                 return None
             return None if lookup_fact(self.facts, key) else f"facts key '{key}' does not exist"
-        matches = list(LOCATION.finditer(ev.replace("`", " ")))
+        matches = list(evidence_locations(ev))
         if not matches:
             return "evidence must be path:line, '$ command -> output' or 'facts.<key>'"
         if self.repo is None:
